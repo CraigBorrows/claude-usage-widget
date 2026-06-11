@@ -6,9 +6,12 @@ reset timer. Built for Craig's Fedora 43 / KDE Wayland workstation.
 ## Working on this
 
 - Source of truth is this project. `package/` is **symlinked** into
-  `~/.local/share/plasma/plasmoids/com.cbo.claudeusage`, and
-  `bin/claude-usage-json` into `~/.local/bin/`. Run `./install.sh` to (re)create
-  the symlinks, clear the QML cache, and restart plasmashell.
+  `~/.local/share/plasma/plasmoids/com.cbo.claudeusage`. The helper now lives
+  **inside** the package at `contents/code/claude-usage.py` (resolved at runtime
+  via `Qt.resolvedUrl`), so there's no separate `~/.local/bin` install. Run
+  `./install.sh` to (re)create the symlink, clear the QML cache, and restart
+  plasmashell. Build a distributable with `kpackagetool6 --type Plasma/Applet
+  --package package -o dist/claude-usage.plasmoid`.
 - **Always clear `~/.cache/plasmashell/qmlcache/` after editing `main.qml`** —
   Plasma runs the *compiled* cache, not your source, so a plain restart shows no
   change. This is the single biggest footgun here. `install.sh` handles it.

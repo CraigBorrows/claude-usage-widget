@@ -1,2 +1,3 @@
 *.qmlc
 __pycache__/
+dist/

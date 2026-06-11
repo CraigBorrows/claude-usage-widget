@@ -7,17 +7,16 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLASMOID_DIR="$HOME/.local/share/plasma/plasmoids/com.cbo.claudeusage"
-BIN_LINK="$HOME/.local/bin/claude-usage-json"
 
-mkdir -p "$(dirname "$PLASMOID_DIR")" "$HOME/.local/bin"
+mkdir -p "$(dirname "$PLASMOID_DIR")"
 
 # package/ -> plasmoids/com.cbo.claudeusage  (live = source)
 rm -rf "$PLASMOID_DIR"
 ln -s "$HERE/package" "$PLASMOID_DIR"
 
-# helper -> ~/.local/bin  (main.qml calls this absolute path)
-ln -sf "$HERE/bin/claude-usage-json" "$BIN_LINK"
-chmod +x "$HERE/bin/claude-usage-json"
+# The helper now ships inside the package (contents/code/); remove the stale
+# standalone symlink from earlier versions if present.
+rm -f "$HOME/.local/bin/claude-usage-json"
 
 # Plasma caches *compiled* QML; without this, source edits won't load.
 rm -rf "$HOME/.cache/plasmashell/qmlcache"

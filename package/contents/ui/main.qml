@@ -10,7 +10,10 @@ PlasmoidItem {
     id: root
 
     // ---- config ----
-    readonly property string cmd: "/home/bash/.local/bin/claude-usage-json"
+    // Helper ships inside the package; resolve its path relative to this file
+    // so the widget works on any machine (no hardcoded home path).
+    readonly property string scriptPath: Qt.resolvedUrl("../code/claude-usage.py").toString().replace(/^file:\/\//, "")
+    readonly property string cmd: "python3 '" + scriptPath + "'"
     readonly property int pollMs: 60000
 
     // ---- state (from the official OAuth usage endpoint) ----
@@ -40,7 +43,12 @@ PlasmoidItem {
                 var p = JSON.parse(data["stdout"])
                 if (p.error) {
                     root.errorMsg = p.error
-                    root.fiveHour = root.sevenDay = root.sevenDayOpus = root.sevenDaySonnet = null
+                    // Only blank the data on genuine auth loss. Transient errors
+                    // (rate limit, network blip) keep the last-known values so
+                    // the widget degrades gracefully instead of flickering empty.
+                    if (p.error === "no-token" || p.error === "http-401") {
+                        root.fiveHour = root.sevenDay = root.sevenDayOpus = root.sevenDaySonnet = null
+                    }
                     return
                 }
                 root.fiveHour = p.five_hour
