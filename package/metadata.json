@@ -1,0 +1,16 @@
+{
+    "KPlugin": {
+        "Id": "com.cbo.claudeusage",
+        "Name": "Claude Usage",
+        "Description": "Current Claude session usage and 5-hour window reset timer",
+        "Authors": [
+            { "Name": "Craig Borrows", "Email": "cbo@nube-io.com" }
+        ],
+        "Category": "System Information",
+        "Icon": "utilities-system-monitor",
+        "License": "MIT",
+        "Version": "1.1"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
