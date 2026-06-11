@@ -9,6 +9,8 @@ and the reset timer, sourced from the **same official endpoint Claude Code's
 - **Click → popup:** current 5-hour session plus **weekly limits** (all models,
   Opus, Sonnet) with bars and reset times.
 
+![Claude Usage popup: current session and weekly limits with progress bars and reset times](screenshot.png)
+
 ## Layout
 
 ```
