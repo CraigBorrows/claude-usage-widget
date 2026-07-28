@@ -9,7 +9,7 @@
         "Category": "System Information",
         "Icon": "utilities-system-monitor",
         "License": "MIT",
-        "Version": "1.2"
+        "Version": "1.3"
     },
     "KPackageStructure": "Plasma/Applet",
     "X-Plasma-API-Minimum-Version": "6.0"

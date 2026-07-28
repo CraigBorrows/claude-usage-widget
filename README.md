@@ -6,8 +6,14 @@ and the reset timer, sourced from the **same official endpoint Claude Code's
 
 - **In the panel:** session utilization `%` on top, time-to-reset (minutes) below,
   colour-coded green → orange → red at 70% / 90%.
-- **Click → popup:** current 5-hour session plus **weekly limits** (all models,
-  Opus, Sonnet) with bars and reset times.
+- **Click → popup:** current 5-hour session plus **weekly limits** — all models
+  and every per-model cap the API reports (the one currently in use is marked
+  *· in use*) — with bars and reset times.
+- **Force a refresh:** the popup header has a **Refresh now** button and shows
+  when the data was last fetched. Middle-clicking the panel entry, or
+  right-click → *Refresh now*, does the same without opening the popup. Useful
+  when Claude is running elsewhere (e.g. in a container) and you don't want to
+  wait out the 60-second poll.
 
 ![Claude Usage popup: current session and weekly limits with progress bars and reset times](screenshot.png)
 
@@ -57,6 +63,11 @@ upgrade), or upload it to store.kde.org so it appears under
 that token fresh in normal use; if it expires (no Claude usage for a long
 stretch) the call 401s and the widget shows "Sign in to Claude" until you next
 run Claude Code. Standalone OAuth refresh is **not** implemented.
+
+Per-limit detail comes from the response's `limits` array — the legacy
+`seven_day_opus` / `seven_day_sonnet` fields now return `null`, so anything
+relying on those shows nothing. Set `CLAUDE_CREDENTIALS` to point the helper at
+a credentials file somewhere other than `~/.claude/.credentials.json`.
 
 ## Gotcha: the QML cache
 

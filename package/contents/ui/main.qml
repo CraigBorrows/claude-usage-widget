@@ -19,17 +19,29 @@ PlasmoidItem {
     // ---- state (from the official OAuth usage endpoint) ----
     property var fiveHour: null        // {util, resets_ms}  — current session window
     property var sevenDay: null        // weekly, all models
-    property var sevenDayOpus: null    // weekly, Opus       (may be null)
-    property var sevenDaySonnet: null  // weekly, Sonnet     (may be null)
+    property var limits: []            // full limit list incl. per-model weekly caps
+    property var extra: null           // extra usage credits, when enabled
     property string errorMsg: ""
-    property double nowMs: 0           // ticks every second for live countdowns
+    property double nowMs: 0           // ticks every 15s for live countdowns
+    property double lastFetchMs: 0     // when the last successful fetch landed
+    property bool busy: false          // a fetch is in flight
+    property int fetchSeq: 0           // makes each run a distinct DataSource source
 
     Plasmoid.icon: "utilities-system-monitor"
     toolTipMainText: "Claude Usage"
     toolTipSubText: fiveHour
         ? ("Session " + Math.round(fiveHour.util) + "% · resets in " + remainStr(fiveHour.resets_ms)
-           + (sevenDay ? ("\nWeekly " + Math.round(sevenDay.util) + "%") : ""))
+           + (sevenDay ? ("\nWeekly " + Math.round(sevenDay.util) + "%") : "")
+           + "\nMiddle-click to refresh")
         : (errorMsg !== "" ? statusText() : "No data")
+
+    Plasmoid.contextualActions: [
+        PlasmaCore.Action {
+            text: "Refresh now"
+            icon.name: "view-refresh"
+            onTriggered: root.refresh()
+        }
+    ]
 
     // ---------- data fetch ----------
     P5Support.DataSource {
@@ -38,6 +50,7 @@ PlasmoidItem {
         connectedSources: []
         onNewData: (sourceName, data) => {
             disconnectSource(sourceName)
+            root.busy = false
             if (data["exit code"] !== 0) { root.errorMsg = "exec"; return }
             try {
                 var p = JSON.parse(data["stdout"])
@@ -47,24 +60,42 @@ PlasmoidItem {
                     // (rate limit, network blip) keep the last-known values so
                     // the widget degrades gracefully instead of flickering empty.
                     if (p.error === "no-token" || p.error === "http-401") {
-                        root.fiveHour = root.sevenDay = root.sevenDayOpus = root.sevenDaySonnet = null
+                        root.fiveHour = root.sevenDay = null
+                        root.limits = []
+                        root.extra = null
                     }
                     return
                 }
                 root.fiveHour = p.five_hour
                 root.sevenDay = p.seven_day
-                root.sevenDayOpus = p.seven_day_opus
-                root.sevenDaySonnet = p.seven_day_sonnet
+                root.limits = p.limits ? p.limits : []
+                root.extra = p.extra
+                root.lastFetchMs = p.fetched_ms ? p.fetched_ms : new Date().getTime()
                 root.errorMsg = ""
             } catch (e) {
                 root.errorMsg = "parse"
             }
         }
-        function poll() { connectSource(root.cmd) }
     }
 
-    Timer { interval: root.pollMs; running: true; repeat: true; triggeredOnStart: true; onTriggered: exec.poll() }
+    // Force a fetch right now. The trailing shell comment gives every run a
+    // unique source name, so a manual refresh always re-executes instead of
+    // being swallowed as a duplicate of the source already connected.
+    function refresh() {
+        root.busy = true
+        root.fetchSeq += 1
+        root.nowMs = new Date().getTime()
+        exec.connectSource(root.cmd + " # " + root.fetchSeq)
+    }
+
+    Timer { interval: root.pollMs; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refresh() }
     Timer { interval: 15000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.nowMs = new Date().getTime() }
+    // Watchdog: the helper self-limits to a 10s HTTP timeout, so anything past
+    // 20s means the run is gone — clear the spinner rather than wedge on it.
+    Timer {
+        interval: 20000; running: root.busy; repeat: false
+        onTriggered: root.busy = false
+    }
 
     // ---------- helpers ----------
     function remainStr(resetMs) {
@@ -82,6 +113,13 @@ PlasmoidItem {
         if (!resetMs) return ""
         return Qt.formatDateTime(new Date(resetMs), "ddd d MMM, h:mm ap")
     }
+    function agoStr(ms) {
+        if (!ms) return "never"
+        var mins = Math.floor(Math.max(0, nowMs - ms) / 60000)
+        if (mins < 1) return "just now"
+        if (mins < 60) return mins + "m ago"
+        return Math.floor(mins / 60) + "h ago"
+    }
     function utilColor(u) {
         if (u === undefined || u === null) return Kirigami.Theme.textColor
         if (u >= 90) return Kirigami.Theme.negativeTextColor
@@ -93,6 +131,20 @@ PlasmoidItem {
         if (errorMsg === "net" || errorMsg === "exec") return "Offline"
         return "Error"
     }
+    // Weekly rows, newest API shape first (per-model caps live in `limits`),
+    // falling back to the flat seven_day field on older responses.
+    function weeklyRows() {
+        var rows = []
+        for (var i = 0; i < limits.length; ++i) {
+            var l = limits[i]
+            if (l.group === "weekly") rows.push(l)
+        }
+        if (rows.length === 0 && sevenDay) {
+            rows.push({ label: "All models", util: sevenDay.util,
+                        resets_ms: sevenDay.resets_ms, is_active: false })
+        }
+        return rows
+    }
 
     // ---------- compact (in-panel): just text, % above, time below ----------
     compactRepresentation: MouseArea {
@@ -101,7 +153,11 @@ PlasmoidItem {
         Layout.preferredWidth: col.implicitWidth + Kirigami.Units.smallSpacing * 2
         Layout.minimumHeight: col.implicitHeight
         hoverEnabled: true
-        onClicked: root.expanded = !root.expanded
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        onClicked: (mouse) => {
+            if (mouse.button === Qt.MiddleButton) root.refresh()
+            else root.expanded = !root.expanded
+        }
 
         ColumnLayout {
             id: col
@@ -125,7 +181,7 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 text: root.fiveHour ? root.remainStr(root.fiveHour.resets_ms)
                                     : (root.errorMsg !== "" ? "!" : "…")
-                opacity: 0.8
+                opacity: root.busy ? 0.45 : 0.8
                 font.pixelSize: Math.round(Kirigami.Theme.smallFont.pixelSize)
                 font.features: { "tnum": 1 }
                 fontSizeMode: Text.HorizontalFit
@@ -137,15 +193,44 @@ PlasmoidItem {
 
     // ---------- full (popup) ----------
     fullRepresentation: Item {
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 17
-        Layout.minimumHeight: Kirigami.Units.gridUnit * 15
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 18
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 16
 
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: Kirigami.Units.largeSpacing
             spacing: Kirigami.Units.largeSpacing
 
-            Kirigami.Heading { level: 3; text: "Claude Usage" }
+            // ---- header: title + refresh ----
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                Kirigami.Heading { level: 3; text: "Claude Usage" }
+                Item { Layout.fillWidth: true }
+
+                PlasmaComponents3.Label {
+                    text: root.busy ? "Refreshing…" : ("Updated " + root.agoStr(root.lastFetchMs))
+                    opacity: 0.6
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                }
+                PlasmaComponents3.BusyIndicator {
+                    running: root.busy
+                    visible: root.busy
+                    implicitWidth: Kirigami.Units.iconSizes.small
+                    implicitHeight: Kirigami.Units.iconSizes.small
+                }
+                PlasmaComponents3.ToolButton {
+                    icon.name: "view-refresh"
+                    display: PlasmaComponents3.AbstractButton.IconOnly
+                    text: "Refresh now"
+                    enabled: !root.busy
+                    onClicked: root.refresh()
+                    PlasmaComponents3.ToolTip.text: "Fetch usage now"
+                    PlasmaComponents3.ToolTip.visible: hovered
+                    PlasmaComponents3.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+            }
 
             // ---- current session (5h) ----
             ColumnLayout {
@@ -180,49 +265,68 @@ PlasmoidItem {
             // ---- weekly limits ----
             Kirigami.Heading {
                 level: 4; text: "Weekly limits"
-                visible: root.sevenDay !== null
+                visible: root.weeklyRows().length > 0
             }
             ColumnLayout {
                 Layout.fillWidth: true
-                visible: root.sevenDay !== null
+                visible: root.weeklyRows().length > 0
                 spacing: Kirigami.Units.largeSpacing
 
-                // weekly row factory via Repeater
                 Repeater {
-                    model: [
-                        { label: "All models", d: root.sevenDay },
-                        { label: "Opus",       d: root.sevenDayOpus },
-                        { label: "Sonnet",     d: root.sevenDaySonnet }
-                    ]
+                    model: root.weeklyRows()
                     delegate: ColumnLayout {
                         required property var modelData
                         Layout.fillWidth: true
-                        visible: modelData.d !== null && modelData.d !== undefined
                         spacing: 2
                         RowLayout {
                             Layout.fillWidth: true
                             PlasmaComponents3.Label { text: modelData.label; opacity: 0.8 }
+                            PlasmaComponents3.Label {
+                                text: "· in use"
+                                visible: modelData.is_active === true
+                                opacity: 0.55
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            }
                             Item { Layout.fillWidth: true }
                             PlasmaComponents3.Label {
-                                text: modelData.d ? (Math.round(modelData.d.util) + "%") : "—"
+                                text: (modelData.util !== null && modelData.util !== undefined)
+                                      ? (Math.round(modelData.util) + "%") : "—"
                                 font.bold: true
-                                color: modelData.d ? root.utilColor(modelData.d.util) : Kirigami.Theme.textColor
+                                color: root.utilColor(modelData.util)
                             }
                         }
                         PlasmaComponents3.ProgressBar {
                             Layout.fillWidth: true; from: 0; to: 100
-                            value: modelData.d ? modelData.d.util : 0
+                            value: modelData.util ? modelData.util : 0
                         }
                         PlasmaComponents3.Label {
                             Layout.fillWidth: true
-                            visible: modelData.d && modelData.d.resets_ms
-                            text: modelData.d && modelData.d.resets_ms
-                                  ? ("Resets " + root.resetAtStr(modelData.d.resets_ms)
-                                     + " (" + root.remainStr(modelData.d.resets_ms) + ")") : ""
+                            visible: !!modelData.resets_ms
+                            text: modelData.resets_ms
+                                  ? ("Resets " + root.resetAtStr(modelData.resets_ms)
+                                     + " (" + root.remainStr(modelData.resets_ms) + ")") : ""
                             opacity: 0.7
                             font.pointSize: Kirigami.Theme.smallFont.pointSize
                         }
                     }
+                }
+            }
+
+            // ---- extra usage credits (only when enabled on the account) ----
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.extra !== null && root.extra !== undefined
+                PlasmaComponents3.Label { text: "Extra usage"; opacity: 0.8 }
+                Item { Layout.fillWidth: true }
+                PlasmaComponents3.Label {
+                    text: root.extra
+                          ? ((root.extra.used !== null && root.extra.used !== undefined
+                              ? (root.extra.used.toFixed(2) + " " + (root.extra.currency || ""))
+                              : "")
+                             + (root.extra.util !== null && root.extra.util !== undefined
+                                ? (" · " + Math.round(root.extra.util) + "%") : ""))
+                          : ""
+                    font.bold: true
                 }
             }
 

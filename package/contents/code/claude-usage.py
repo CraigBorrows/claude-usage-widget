@@ -8,11 +8,13 @@ import datetime
 import urllib.request
 import urllib.error
 
-CRED = os.path.expanduser("~/.claude/.credentials.json")
+CRED = os.path.expanduser(
+    os.environ.get("CLAUDE_CREDENTIALS", "~/.claude/.credentials.json"))
 URL = "https://api.anthropic.com/api/oauth/usage"
 
 
 def emit(obj):
+    obj["fetched_ms"] = int(datetime.datetime.now().timestamp() * 1000)
     print(json.dumps(obj))
     raise SystemExit(0)
 
@@ -40,18 +42,75 @@ except Exception:
     emit({"error": "net"})
 
 
+def to_ms(iso):
+    if not iso:
+        return None
+    try:
+        return int(datetime.datetime.fromisoformat(iso).timestamp() * 1000)
+    except Exception:
+        return None
+
+
 def conv(d):
     if not d:
         return None
-    ms = None
-    r = d.get("resets_at")
-    if r:
-        try:
-            ms = int(datetime.datetime.fromisoformat(r).timestamp() * 1000)
-        except Exception:
-            ms = None
-    return {"util": d.get("utilization"), "resets_ms": ms}
+    return {"util": d.get("utilization"), "resets_ms": to_ms(d.get("resets_at"))}
 
+
+# The `limits` array is the current shape of the API: one entry per active
+# limit, including per-model weekly caps that the legacy `seven_day_opus` /
+# `seven_day_sonnet` fields no longer carry (they come back null).
+KIND_LABELS = {
+    "session": "Current session",
+    "weekly_all": "All models",
+    "weekly_opus": "Opus",
+    "weekly_sonnet": "Sonnet",
+    "weekly_scoped": "Scoped",
+}
+
+
+def label_for(lim):
+    scope = lim.get("scope") or {}
+    model = (scope.get("model") or {}).get("display_name")
+    surface = (scope.get("surface") or {})
+    surface_name = surface.get("display_name") if isinstance(surface, dict) else surface
+    if model:
+        return model
+    if surface_name:
+        return str(surface_name)
+    kind = lim.get("kind") or ""
+    return KIND_LABELS.get(kind, kind.replace("_", " ").title() or "Limit")
+
+
+limits = []
+for lim in (data.get("limits") or []):
+    if not isinstance(lim, dict):
+        continue
+    limits.append({
+        "kind": lim.get("kind"),
+        "group": lim.get("group"),
+        "label": label_for(lim),
+        "util": lim.get("percent"),
+        "resets_ms": to_ms(lim.get("resets_at")),
+        "severity": lim.get("severity"),
+        "is_active": bool(lim.get("is_active")),
+    })
+
+# Extra usage credits (pay-as-you-go beyond the plan), when enabled.
+extra = data.get("extra_usage") or {}
+spend = data.get("spend") or {}
+used = spend.get("used") or {}
+extra_out = None
+if extra.get("is_enabled") or spend.get("enabled"):
+    amount = used.get("amount_minor")
+    exponent = used.get("exponent")
+    extra_out = {
+        "util": extra.get("utilization") if extra.get("utilization") is not None
+                else spend.get("percent"),
+        "used": (amount / (10 ** exponent)) if isinstance(amount, (int, float))
+                and isinstance(exponent, int) else None,
+        "currency": used.get("currency") or extra.get("currency"),
+    }
 
 emit({
     "ok": True,
@@ -59,4 +118,6 @@ emit({
     "seven_day": conv(data.get("seven_day")),
     "seven_day_opus": conv(data.get("seven_day_opus")),
     "seven_day_sonnet": conv(data.get("seven_day_sonnet")),
+    "limits": limits,
+    "extra": extra_out,
 })

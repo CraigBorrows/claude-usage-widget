@@ -23,10 +23,14 @@ reset timer. Built for Craig's Fedora 43 / KDE Wayland workstation.
 
 - Endpoint: `https://api.anthropic.com/api/oauth/usage` (same as Claude Code's
   `/usage`). Auth: `Authorization: Bearer <token>` + `anthropic-beta: oauth-2025-04-20`.
-- Token comes from `~/.claude/.credentials.json` -> `claudeAiOauth.accessToken`.
-- Response fields used: `five_hour`, `seven_day`, `seven_day_opus`,
-  `seven_day_sonnet`, each `{utilization, resets_at}`. The helper pre-converts
-  `resets_at` to epoch ms (`resets_ms`) so the QML never parses dates.
+- Token comes from `~/.claude/.credentials.json` -> `claudeAiOauth.accessToken`
+  (override the path with `CLAUDE_CREDENTIALS`).
+- `five_hour` / `seven_day` give `{utilization, resets_at}` for the headline.
+  Per-model weekly caps come from the **`limits` array** (`kind`, `group`,
+  `percent`, `resets_at`, `scope.model.display_name`, `is_active`) — the legacy
+  `seven_day_opus` / `seven_day_sonnet` fields return `null` now, so don't rely
+  on them. The helper pre-converts every `resets_at` to epoch ms (`resets_ms`)
+  so the QML never parses dates, and stamps `fetched_ms` on every emit.
 - No standalone OAuth refresh — relies on Claude Code keeping the token fresh.
 
 ## Conventions
@@ -34,3 +38,8 @@ reset timer. Built for Craig's Fedora 43 / KDE Wayland workstation.
 - Panel text: utilization `%` above, minutes-only countdown below (no seconds).
 - Colour thresholds: >=90 negative (red), >=70 neutral (orange), else positive.
 - Poll every 60s; internal clock ticks every 15s (minute-resolution display).
+- Manual refresh: popup button, middle-click on the panel entry, and the
+  right-click contextual action all call `root.refresh()`. It appends
+  `" # <seq>"` to the command so each run is a *distinct* DataSource source —
+  without that, reconnecting the same source name is a no-op and the forced
+  refresh silently does nothing.
