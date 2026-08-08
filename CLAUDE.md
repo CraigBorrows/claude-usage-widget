@@ -42,4 +42,11 @@ reset timer. Built for Craig's Fedora 43 / KDE Wayland workstation.
   right-click contextual action all call `root.refresh()`. It appends
   `" # <seq>"` to the command so each run is a *distinct* DataSource source —
   without that, reconnecting the same source name is a no-op and the forced
-  refresh silently does nothing.
+  refresh silently does nothing. **`seq` wraps at 8 — never make it unbounded.**
+  Plasma5Support keeps source names in a `QQmlPropertyMap` backed by an
+  append-only `QQmlOpenMetaObject`, and rebuilds the entire metaobject on every
+  connect *and* disconnect, so an unbounded counter makes each poll cost
+  O(polls so far). The 3 s siblings (`cpu-widget`, `memory-widget`) pinned
+  plasmashell's main thread at 100% this way after a day of uptime; at 60 s this
+  one is slower to bite but grows exactly the same. 8 names means one is reused
+  only after 8 minutes.

@@ -79,11 +79,20 @@ PlasmoidItem {
     }
 
     // Force a fetch right now. The trailing shell comment gives every run a
-    // unique source name, so a manual refresh always re-executes instead of
+    // distinct source name, so a manual refresh always re-executes instead of
     // being swallowed as a duplicate of the source already connected.
+    //
+    // The counter WRAPS, and must. Plasma5Support exposes source names through a
+    // QQmlPropertyMap backed by a QQmlOpenMetaObject, which is append-only: every
+    // name ever used stays a property forever, and each connect/disconnect calls
+    // QMetaObjectBuilder::toMetaObject() to rebuild the metaobject over all of
+    // them, so an unbounded counter turns every poll into O(polls so far). The
+    // 3 s siblings (cpu-widget, memory-widget) pinned plasmashell's main thread
+    // at 100% this way; at 60 s this one is slower to bite but grows just the
+    // same. 8 names means one is reused only after 8 minutes.
     function refresh() {
         root.busy = true
-        root.fetchSeq += 1
+        root.fetchSeq = (root.fetchSeq + 1) % 8
         root.nowMs = new Date().getTime()
         exec.connectSource(root.cmd + " # " + root.fetchSeq)
     }
